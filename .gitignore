@@ -1,0 +1,8 @@
+bin/
+obj/
+/packages/
+riderModule.iml
+/_ReSharper.Caches/
+PM_CategoriesTesting.sln.DotSettings.user
+.idea
+.vs
