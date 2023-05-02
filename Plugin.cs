@@ -48,7 +48,7 @@ namespace PM_CategoriesTesting
             repairStation.RequiredItems.Add("Iron", 30, true);
             repairStation.RequiredItems.Add("Wood", 10, true);
             repairStation.RequiredItems.Add("SurtlingCore", 3, true);
-            repairStation.Category.Add("Custom Category");
+            repairStation.Category.Set("Custom Category");
             repairStation.Crafting.Set(CraftingTable.Forge);
 
             Assembly assembly = Assembly.GetExecutingAssembly();
