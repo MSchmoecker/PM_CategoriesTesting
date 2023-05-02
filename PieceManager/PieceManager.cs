@@ -305,7 +305,20 @@ public class BuildPiece
                         {
                             // broken
                             // piece.Prefab.GetComponent<Piece>().m_category = (Piece.PieceCategory)ZNetScene.instance.GetPrefab(cfg.customCategory.Value)?.GetComponent<Piece>().m_category;
-                            piecePrefab.m_category = (Piece.PieceCategory)PiecePrefabManager.GetPieceCategory(cfg.customCategory.Value);
+                            //piecePrefab.m_category = (Piece.PieceCategory)PiecePrefabManager.GetPieceCategory(cfg.customCategory.Value);
+                            int maxCategoryValue = 0;
+                            foreach (var VARIABLE in ZNetScene.instance.m_prefabs)
+                            {
+                                if (VARIABLE.GetComponent<Piece>())
+                                {
+                                    // Find max category value
+                                    if ((int)VARIABLE.GetComponent<Piece>().m_category > maxCategoryValue)
+                                    {
+                                        maxCategoryValue = (int)VARIABLE.GetComponent<Piece>().m_category;
+                                    }
+                                }
+                            }
+                            piecePrefab.m_category = (Piece.PieceCategory)maxCategoryValue + 1;
                         }
                         else
                         {
@@ -323,6 +336,26 @@ public class BuildPiece
                 if (cfg.category.Value != BuildPieceCategory.Custom)
                 {
                     piecePrefab.m_category = (Piece.PieceCategory)cfg.category.Value;
+                }
+                else
+                {
+                    if (ZNetScene.instance != null)
+                    {
+                        int maxCategoryValue = 0;
+                        foreach (var VARIABLE in ZNetScene.instance.m_prefabs)
+                        {
+                            if (VARIABLE.GetComponent<Piece>())
+                            {
+                                // Find max category value
+                                if ((int)VARIABLE.GetComponent<Piece>().m_category > maxCategoryValue)
+                                {
+                                    maxCategoryValue = (int)VARIABLE.GetComponent<Piece>().m_category;
+                                }
+                            }
+                        }
+
+                        piecePrefab.m_category = (Piece.PieceCategory)maxCategoryValue + 1;
+                    }
                 }
 
                 if (piece.Extension.ExtensionStations.Count > 0)
@@ -1695,7 +1728,7 @@ public static Piece.PieceCategory? GetPieceCategory(string name)
         if (Enum.IsDefined(typeof(Piece.PieceCategory), name))
         {
             Debug.LogError("[PieceManager] Category already exists");
-            return (Piece.PieceCategory)Enum.Parse(typeof(Piece.PieceCategory), name);
+            return (Piece.PieceCategory)Enum.Parse(typeof(BuildPieceCategory), name);
         }
 
         //foreach (BuildPiece VARIABLE in BuildPiece.registeredPieces)
