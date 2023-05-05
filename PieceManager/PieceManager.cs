@@ -1312,6 +1312,11 @@ public static class PiecePrefabManager
 
 	public static Piece.PieceCategory GetCategory(string name)
 	{
+        if (Enum.TryParse(name, true, out Piece.PieceCategory category))
+        {
+            return category;
+        }
+
 		for (int i = 0; i < Hud.instance.m_buildCategoryNames.Count; ++i)
 		{
 			if (Hud.instance.m_buildCategoryNames[i] == name)
