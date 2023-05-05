@@ -1187,6 +1187,9 @@ public static class PiecePrefabManager
 			transpiler: new HarmonyMethod(AccessTools.DeclaredMethod(typeof(PiecePrefabManager),
 				nameof(UpdateAvailable_Transpiler))));
 
+        harmony.Patch(AccessTools.DeclaredMethod(typeof(PieceTable), nameof(PieceTable.UpdateAvailable)),
+            postfix: new HarmonyMethod(AccessTools.DeclaredMethod(typeof(PiecePrefabManager),
+                nameof(UpdateAvailable_Postfix))));
 
 		harmony.Patch(AccessTools.DeclaredMethod(typeof(PieceTable), nameof(PieceTable.NextCategory)),
 			transpiler: new HarmonyMethod(AccessTools.DeclaredMethod(typeof(PiecePrefabManager),
@@ -1309,6 +1312,11 @@ public static class PiecePrefabManager
 
 	public static Piece.PieceCategory GetCategory(string name)
 	{
+        if (Enum.TryParse(name, true, out Piece.PieceCategory category))
+        {
+            return category;
+        }
+
 		for (int i = 0; i < Hud.instance.m_buildCategoryNames.Count; ++i)
 		{
 			if (Hud.instance.m_buildCategoryNames[i] == name)
@@ -1373,7 +1381,7 @@ public static class PiecePrefabManager
 		{
 			GameObject newTab = Object.Instantiate(Hud.instance.m_pieceCategoryTabs[0], Hud.instance.m_pieceCategoryRoot.transform);
             RectTransform rect = newTab.GetComponent<RectTransform>();
-            rect.anchoredPosition += new Vector2((rect.rect.width + 2) * i % (int)Piece.PieceCategory.Max, -(rect.rect.height + verticalSpacing) * (i / (int)Piece.PieceCategory.Max));
+            rect.anchoredPosition += new Vector2(rect.rect.width * (i % (int)Piece.PieceCategory.Max), -(rect.rect.height + verticalSpacing) * (i / (int)Piece.PieceCategory.Max));
 
             newTab.GetOrAddComponent<UIInputHandler>().m_onLeftDown += Hud.instance.OnLeftClickCategory;
             Hud.instance.m_pieceCategoryTabs = Hud.m_instance.m_pieceCategoryTabs.AddItem(newTab).ToArray();
@@ -1447,6 +1455,11 @@ public static class PiecePrefabManager
 	static IEnumerable<CodeInstruction> SetCategory_Transpiler(IEnumerable<CodeInstruction> instructions) => TranspileMaxCategory(instructions, -1);
 
 	static IEnumerable<CodeInstruction> UpdateAvailable_Transpiler(IEnumerable<CodeInstruction> instructions) => TranspileMaxCategory(instructions, 0);
+
+    private static void UpdateAvailable_Postfix(PieceTable __instance) {
+        Array.Resize(ref __instance.m_selectedPiece, __instance.m_availablePieces.Count);
+        Array.Resize(ref __instance.m_lastSelectedPiece, __instance.m_availablePieces.Count);
+    }
 
 	[HarmonyPriority(Priority.VeryHigh)]
 	private static void Hud_AwakeCreateTabs()
