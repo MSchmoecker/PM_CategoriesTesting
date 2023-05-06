@@ -126,6 +126,14 @@ public class BuildingPieceCategory
 }
 
 [PublicAPI]
+public class PieceTool
+{
+	public readonly HashSet<string> Tools = new();
+
+	public void Add(string tool) => Tools.Add(tool);
+}
+
+[PublicAPI]
 public class BuildPiece
 {
 	internal class PieceConfig
@@ -133,6 +141,7 @@ public class BuildPiece
 		public ConfigEntry<string> craft = null!;
 		public ConfigEntry<BuildPieceCategory> category = null!;
 		public ConfigEntry<string> customCategory = null!;
+		public ConfigEntry<string> tools = null!;
 		public ConfigEntry<CraftingTable> extensionTable = null!;
 		public ConfigEntry<string> customExtentionTable = null!;
 		public ConfigEntry<float> maxStationDistance = null!;
@@ -155,6 +164,9 @@ public class BuildPiece
 
 	[Description("Sets the category for the building piece.")]
 	public readonly BuildingPieceCategory Category = new();
+
+	[Description("Specifies the tool needed to build your piece.\nUse .Add to add a tool.")]
+	public readonly PieceTool Tool = new();
 
 	[Description(
 		"Specifies the crafting station needed to build your piece.\nUse .Add to add a crafting station, using the CraftingTable enum and a minimum level for the crafting station.")]
@@ -225,17 +237,9 @@ public class BuildPiece
 	{
 	}
 
-	public BuildPiece(AssetBundle bundle, string prefabName, bool addToCustom = false, string customPieceTable = "")
+	public BuildPiece(AssetBundle bundle, string prefabName)
 	{
-		if (addToCustom)
-		{
-			Prefab = PiecePrefabManager.RegisterPrefab(bundle, prefabName, false, true, customPieceTable);
-		}
-		else
-		{
-			Prefab = PiecePrefabManager.RegisterPrefab(bundle, prefabName, true);
-		}
-
+		Prefab = PiecePrefabManager.RegisterPrefab(bundle, prefabName);
 		registeredPieces.Add(this);
 	}
 
@@ -246,6 +250,8 @@ public class BuildPiece
 		[UsedImplicitly] public string? Category;
 		[UsedImplicitly] public Action<ConfigEntryBase>? CustomDrawer;
 	}
+
+	internal string[] activeTools = null!;
 
 	private static object? configManager;
 
@@ -262,6 +268,10 @@ public class BuildPiece
 		void ReloadConfigDisplay() =>
 			configManagerType?.GetMethod("BuildSettingList")!.Invoke(configManager, Array.Empty<object>());
 
+		foreach (BuildPiece piece in registeredPieces)
+		{
+			piece.activeTools = piece.Tool.Tools.DefaultIfEmpty("Hammer").ToArray();
+		}
 
 		if (ConfigurationEnabled)
 		{
@@ -288,7 +298,7 @@ public class BuildPiece
 					Category = localizedName
 				};
 				cfg.customCategory = config(englishName, "Custom Build Category",
-					piece.Category.custom ?? "",
+					piece.Category.custom,
 					new ConfigDescription("", null, customTableAttributes));
 
 				void BuildTableConfigChanged(object o, EventArgs e)
@@ -324,6 +334,50 @@ public class BuildPiece
 				{
 					piecePrefab.m_category = (Piece.PieceCategory)cfg.category.Value;
 				}
+
+				cfg.tools = config(englishName, "Tools",
+					string.Join(", ", piece.activeTools),
+					new ConfigDescription($"Comma separated list of tools where {localizedName} is available.", null, customTableAttributes));
+				piece.activeTools = cfg.tools.Value.Split(',').Select(s => s.Trim()).ToArray();
+				cfg.tools.SettingChanged += (_, _) =>
+				{
+					Inventory[] inventories = Player.m_players.Select(p => p.GetInventory()).Concat(Object.FindObjectsOfType<Container>().Select(c => c.GetInventory())).Where(c => c is not null).ToArray();
+					Dictionary<string, List<PieceTable>> tools = ObjectDB.instance.m_items.Select(p => p.GetComponent<ItemDrop>()).Where(c => c && c.GetComponent<ZNetView>()).Concat(ItemDrop.m_instances).Select(i => new KeyValuePair<string, ItemDrop.ItemData>(Utils.GetPrefabName(i.gameObject), i.m_itemData)).Concat(inventories.SelectMany(i => i.GetAllItems()).Select(i => new KeyValuePair<string, ItemDrop.ItemData>(i.m_dropPrefab.name, i))).Where(kv => kv.Value.m_shared.m_buildPieces).GroupBy(kv => kv.Key).ToDictionary(g => g.Key, g => g.Select(kv => kv.Value.m_shared.m_buildPieces).Distinct().ToList());
+
+					foreach (string tool in piece.activeTools)
+					{
+						if (tools.TryGetValue(tool, out List<PieceTable> existingTools))
+						{
+							foreach (PieceTable table in existingTools)
+							{
+								table.m_pieces.Remove(piece.Prefab);
+							}
+						}
+					}
+
+					piece.activeTools = cfg.tools.Value.Split(',').Select(s => s.Trim()).ToArray();
+					if (ObjectDB.instance)
+					{
+						foreach (string tool in piece.activeTools)
+						{
+							if (tools.TryGetValue(tool, out List<PieceTable> existingTools))
+							{
+								foreach (PieceTable table in existingTools)
+								{
+									if (!table.m_pieces.Contains(piece.Prefab))
+									{
+										table.m_pieces.Add(piece.Prefab);
+									}
+								}
+							}
+						}
+
+						if (Player.m_localPlayer && Player.m_localPlayer.m_buildPieces)
+						{
+							Player.m_localPlayer.SetPlaceMode(Player.m_localPlayer.m_buildPieces);
+						}
+					}
+				};
 
 				if (piece.Extension.ExtensionStations.Count > 0)
 				{
@@ -451,7 +505,7 @@ public class BuildPiece
 						Piece.Requirement[] requirements =
 							SerializedRequirements.toPieceReqs(new SerializedRequirements(cfg.craft.Value));
 						piecePrefab.m_resources = requirements;
-						foreach (Piece instantiatedPiece in UnityEngine.Object.FindObjectsOfType<Piece>())
+						foreach (Piece instantiatedPiece in Object.FindObjectsOfType<Piece>())
 						{
 							if (instantiatedPiece.m_name == pieceName)
 							{
@@ -469,7 +523,7 @@ public class BuildPiece
 			}
 		}
 	}
-
+	
 	[HarmonyPriority(Priority.VeryHigh)]
 	internal static void Patch_ObjectDBInit(ObjectDB __instance)
 	{
@@ -978,12 +1032,12 @@ public class AdminSyncing
 		{
 			if (isServer)
 			{
-				ZRoutedRpc.instance.Register<ZPackage>(BuildPiece._plugin?.Info.Metadata.Name + " PMAdminStatusSync",
+				ZRoutedRpc.instance.Register<ZPackage>(BuildPiece._plugin.Info.Metadata.Name + " PMAdminStatusSync",
 					RPC_AdminPieceAddRemove);
 			}
 			else if (!registeredOnClient)
 			{
-				ZRoutedRpc.instance.Register<ZPackage>(BuildPiece._plugin?.Info.Metadata.Name + " PMAdminStatusSync",
+				ZRoutedRpc.instance.Register<ZPackage>(BuildPiece._plugin.Info.Metadata.Name + " PMAdminStatusSync",
 					RPC_AdminPieceAddRemove);
 				registeredOnClient = true;
 			}
@@ -1226,6 +1280,15 @@ public static class PiecePrefabManager
 		harmony.Patch(AccessTools.DeclaredMethod(typeof(Localization), nameof(Localization.LoadCSV)),
 			postfix: new HarmonyMethod(AccessTools.DeclaredMethod(typeof(LocalizeKey),
 				nameof(LocalizeKey.AddLocalizedKeys))));
+		harmony.Patch(AccessTools.DeclaredMethod(typeof(PieceTable), nameof(PieceTable.PrevCategory)),
+			postfix: new HarmonyMethod(AccessTools.DeclaredMethod(typeof(PiecePrefabManager),
+				nameof(Patch_PieceTable_PrevCategory))));
+		harmony.Patch(AccessTools.DeclaredMethod(typeof(PieceTable), nameof(PieceTable.NextCategory)),
+			postfix: new HarmonyMethod(AccessTools.DeclaredMethod(typeof(PiecePrefabManager),
+				nameof(Patch_PieceTable_NextCategory))));
+		harmony.Patch(AccessTools.DeclaredMethod(typeof(Player), nameof(Player.SetPlaceMode)),
+			postfix: new HarmonyMethod(AccessTools.DeclaredMethod(typeof(PiecePrefabManager),
+				nameof(Patch_SetPlaceMode))));
 	}
 
 	private struct BundleId
@@ -1258,8 +1321,6 @@ public static class PiecePrefabManager
 	}
 
 	private static readonly List<GameObject> piecePrefabs = new();
-	private static readonly Dictionary<GameObject, string> customPiecePrefabs = new();
-	private static readonly List<GameObject> ZnetOnlyPrefabs = new();
 
 	public static GameObject RegisterPrefab(
 		string assetBundleFileName,
@@ -1267,12 +1328,7 @@ public static class PiecePrefabManager
 		string folderName = "assets") =>
 		RegisterPrefab(RegisterAssetBundle(assetBundleFileName, folderName), prefabName);
 
-	public static GameObject RegisterPrefab(
-		AssetBundle assets,
-		string prefabName,
-		bool addToPieceTable = false,
-		bool addToCustomPieceTable = false,
-		string customPieceTable = "")
+	public static GameObject RegisterPrefab(AssetBundle assets, string prefabName)
 	{
 		GameObject prefab = assets.LoadAsset<GameObject>(prefabName);
 
@@ -1281,18 +1337,7 @@ public static class PiecePrefabManager
 			MaterialReplacer.RegisterGameObjectForShaderSwap(gameObject, MaterialReplacer.ShaderType.UseUnityShader);
 		}
 
-		if (addToPieceTable)
-		{
-			piecePrefabs.Add(prefab);
-		}
-		else if (addToCustomPieceTable)
-		{
-			customPiecePrefabs.Add(prefab, customPieceTable);
-		}
-		else
-		{
-			ZnetOnlyPrefabs.Add(prefab);
-		}
+		piecePrefabs.Add(prefab);
 
 		return prefab;
 	}
@@ -1362,28 +1407,11 @@ public static class PiecePrefabManager
 	
 	internal static void DrawCategoryTabs()
 	{
-		const int verticalSpacing = 2;
-		
-		int diff = (Hud.instance.m_buildCategoryNames.Count - 1) / (int)Piece.PieceCategory.Max - (Hud.instance.m_pieceCategoryTabs.Length - 1) / (int)Piece.PieceCategory.Max;
-        if (diff != 0)
-        { 
-        	RectTransform rect = Hud.instance.m_buildHud.transform.Find("bar/SelectionWindow/Bkg2").GetComponent<RectTransform>();
-            float heightDelta = diff * (Hud.instance.m_pieceCategoryTabs[0].GetComponent<RectTransform>().rect.height + verticalSpacing);
-            float originalHeight = rect.rect.height;
-            rect.localScale = rect.localScale with { y = rect.localScale.y * (originalHeight + heightDelta) / originalHeight };
-            rect.localPosition += new Vector3(0, heightDelta / 2, 0);
-
-            Hud.instance.m_pieceCategoryRoot.transform.localPosition += new Vector3(0, heightDelta, 0);
-            Hud.instance.m_pieceCategoryRoot.transform.Find("TabBorder").localPosition += new Vector3(0, -heightDelta, 0);
-        }
-        
 		for (int i = Hud.instance.m_pieceCategoryTabs.Length; i < Hud.instance.m_buildCategoryNames.Count; ++i)
 		{
 			GameObject newTab = Object.Instantiate(Hud.instance.m_pieceCategoryTabs[0], Hud.instance.m_pieceCategoryRoot.transform);
-            RectTransform rect = newTab.GetComponent<RectTransform>();
-            rect.anchoredPosition += new Vector2(rect.rect.width * (i % (int)Piece.PieceCategory.Max), -(rect.rect.height + verticalSpacing) * (i / (int)Piece.PieceCategory.Max));
-
-            newTab.GetOrAddComponent<UIInputHandler>().m_onLeftDown += Hud.instance.OnLeftClickCategory;
+			newTab.SetActive(false);
+			newTab.GetOrAddComponent<UIInputHandler>().m_onLeftDown += Hud.instance.OnLeftClickCategory;
             Hud.instance.m_pieceCategoryTabs = Hud.m_instance.m_pieceCategoryTabs.AddItem(newTab).ToArray();
 		}
 
@@ -1409,12 +1437,9 @@ public static class PiecePrefabManager
 
 		Hud.instance.m_pieceCategoryTabs = Hud.instance.m_pieceCategoryTabs.Take(Hud.instance.m_buildCategoryNames.Count).ToArray();
 
-		if (Player.m_localPlayer && Player.m_localPlayer.m_buildPieces && (int)Player.m_localPlayer.m_buildPieces.m_selectedCategory >= Hud.instance.m_buildCategoryNames.Count)
+		if (Player.m_localPlayer && Player.m_localPlayer.m_buildPieces)
 		{
-			Player.m_localPlayer.m_buildPieces.SetCategory(0);
-		}
-		if (Player.m_localPlayer)
-		{
+			RepositionCategories(Player.m_localPlayer.m_buildPieces);
 			Player.m_localPlayer.UpdateAvailablePiecesList();
 		}
 		if (updatedTab)
@@ -1456,7 +1481,93 @@ public static class PiecePrefabManager
 
 	static IEnumerable<CodeInstruction> UpdateAvailable_Transpiler(IEnumerable<CodeInstruction> instructions) => TranspileMaxCategory(instructions, 0);
 
-    private static void UpdateAvailable_Postfix(PieceTable __instance) {
+	private static HashSet<Piece.PieceCategory> CategoriesInPieceTable(PieceTable pieceTable)
+	{
+		HashSet<Piece.PieceCategory> categories = new();
+
+		foreach (GameObject piece in pieceTable.m_pieces)
+		{
+			categories.Add(piece.GetComponent<Piece>().m_category);
+		}
+
+		return categories;
+	}
+
+	private static void RepositionCategories(PieceTable pieceTable)
+	{
+		const int verticalSpacing = 2;
+
+		HashSet<Piece.PieceCategory> visibleCategories = CategoriesInPieceTable(pieceTable);
+
+		pieceTable.m_useCategories = visibleCategories.Count > 1;
+		
+		int originallyVisibleTabs = 0;
+		int visibleTabs = 0;
+		for (int i = 0; i < Hud.instance.m_pieceCategoryTabs.Length; ++i)
+		{
+			GameObject tab = Hud.instance.m_pieceCategoryTabs[i];
+			if (tab.activeSelf)
+			{
+				++originallyVisibleTabs;
+			}
+			if (visibleCategories.Contains((Piece.PieceCategory)i))
+			{
+				tab.SetActive(true);
+				RectTransform rect = tab.GetComponent<RectTransform>();
+				rect.anchoredPosition = Hud.instance.m_pieceCategoryTabs[0].GetComponent<RectTransform>().anchoredPosition + new Vector2(rect.rect.width * (visibleTabs % (int)Piece.PieceCategory.Max), -(rect.rect.height + verticalSpacing) * (visibleTabs / (int)Piece.PieceCategory.Max));
+				++visibleTabs;
+			}
+			else
+			{
+				tab.SetActive(false);
+			}
+		}
+			
+		int diff = (visibleTabs - 1) / (int)Piece.PieceCategory.Max - (originallyVisibleTabs - 1) / (int)Piece.PieceCategory.Max;
+		if (diff != 0)
+		{ 
+			RectTransform rect = Hud.instance.m_buildHud.transform.Find("bar/SelectionWindow/Bkg2").GetComponent<RectTransform>();
+			float heightDelta = diff * (Hud.instance.m_pieceCategoryTabs[0].GetComponent<RectTransform>().rect.height + verticalSpacing);
+			float originalHeight = rect.rect.height;
+			rect.localScale = rect.localScale with { y = rect.localScale.y * (originalHeight + heightDelta) / originalHeight };
+			rect.localPosition += new Vector3(0, heightDelta / 2, 0);
+
+			Hud.instance.m_pieceCategoryRoot.transform.localPosition += new Vector3(0, heightDelta, 0);
+			Hud.instance.m_pieceCategoryRoot.transform.Find("TabBorder").localPosition += new Vector3(0, -heightDelta, 0);
+		}
+	        
+		if ((int)Player.m_localPlayer.m_buildPieces.m_selectedCategory >= Hud.instance.m_buildCategoryNames.Count)
+		{
+			Player.m_localPlayer.m_buildPieces.SetCategory((int)visibleCategories.First());
+		}
+	}
+
+	private static void Patch_SetPlaceMode(Player __instance)
+	{
+		if (__instance.m_buildPieces)
+		{
+			RepositionCategories(__instance.m_buildPieces);
+		}
+	}
+
+	private static void Patch_PieceTable_NextCategory(PieceTable __instance)
+	{
+		if (__instance.m_useCategories && !CategoriesInPieceTable(__instance).Contains(__instance.m_selectedCategory))
+		{
+			__instance.NextCategory();
+		}
+	}
+	
+	private static void Patch_PieceTable_PrevCategory(PieceTable __instance)
+	{
+		if (__instance.m_useCategories && !CategoriesInPieceTable(__instance).Contains(__instance.m_selectedCategory))
+		{
+			__instance.PrevCategory();
+		}
+	}
+
+	private static void UpdateAvailable_Postfix(PieceTable __instance) 
+    {
         Array.Resize(ref __instance.m_selectedPiece, __instance.m_availablePieces.Count);
         Array.Resize(ref __instance.m_lastSelectedPiece, __instance.m_availablePieces.Count);
     }
@@ -1485,7 +1596,7 @@ public static class PiecePrefabManager
 	[HarmonyPriority(Priority.VeryHigh)]
 	private static void Patch_ZNetSceneAwake(ZNetScene __instance)
 	{
-		foreach (GameObject prefab in piecePrefabs.Concat(ZnetOnlyPrefabs).Concat(customPiecePrefabs.Keys))
+		foreach (GameObject prefab in piecePrefabs)
 		{
 			if (!__instance.m_prefabs.Contains(prefab))
 				__instance.m_prefabs.Add(prefab);
@@ -1495,7 +1606,7 @@ public static class PiecePrefabManager
 	[HarmonyPriority(Priority.VeryHigh)]
 	private static void RefFixPatch_ZNetSceneAwake(ZNetScene __instance)
 	{
-		foreach (GameObject prefab in piecePrefabs.Concat(ZnetOnlyPrefabs).Concat(customPiecePrefabs.Keys))
+		foreach (GameObject prefab in piecePrefabs)
 		{
 			if (__instance.m_prefabs.Contains(prefab))
 			{
@@ -1511,40 +1622,21 @@ public static class PiecePrefabManager
 		}
 	}
 
-	[HarmonyPriority(Priority.VeryHigh)]
+	[HarmonyPriority(Priority.LowerThanNormal)]
 	private static void Patch_ObjectDBInit(ObjectDB __instance)
 	{
-		if (__instance.GetItemPrefab("Hammer")?.GetComponent<ItemDrop>().m_itemData.m_shared.m_buildPieces is not
-		    { } hammerPieces)
+		foreach (BuildPiece piece in BuildPiece.registeredPieces)
 		{
-			return;
-		}
-
-		foreach (KeyValuePair<GameObject, string> customPiecePrefab in customPiecePrefabs)
-		{
-			if (__instance.GetItemPrefab(customPiecePrefab.Value)?.GetComponent<ItemDrop>().m_itemData.m_shared
-				    .m_buildPieces is not
-			    { } customPieces)
+			foreach (string tool in piece.activeTools)
 			{
-				continue;
+				if (__instance.GetItemPrefab(tool)?.GetComponent<ItemDrop>().m_itemData.m_shared.m_buildPieces is { } pieceTable)
+				{
+					if (!pieceTable.m_pieces.Contains(piece.Prefab))
+					{
+						pieceTable.m_pieces.Add(piece.Prefab);
+					}
+				}
 			}
-
-			if (customPieces.m_pieces.Contains(customPiecePrefab.Key))
-			{
-				continue;
-			}
-
-			customPieces.m_pieces.Add(customPiecePrefab.Key);
-		}
-
-		foreach (GameObject prefab in piecePrefabs)
-		{
-			if (hammerPieces.m_pieces.Contains(prefab))
-			{
-				return;
-			}
-
-			hammerPieces.m_pieces.Add(prefab);
 		}
 	}
 }

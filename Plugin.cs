@@ -49,6 +49,7 @@ namespace PM_CategoriesTesting
             repairStation.RequiredItems.Add("Wood", 10, true);
             repairStation.RequiredItems.Add("SurtlingCore", 3, true);
             repairStation.Category.Set("Custom Category");
+            repairStation.Tool.Add("Cultivator");
             repairStation.Crafting.Set(CraftingTable.Forge);
 
             Assembly assembly = Assembly.GetExecutingAssembly();
