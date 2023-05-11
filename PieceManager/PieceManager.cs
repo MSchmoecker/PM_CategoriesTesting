@@ -315,7 +315,6 @@ public class BuildPiece
 						}
 						if (Hud.instance)
 						{
-							PiecePrefabManager.ClearEmptyCategories();
 							PiecePrefabManager.DrawCategoryTabs();
 						}
 					}
@@ -1429,38 +1428,7 @@ public static class PiecePrefabManager
         PieceCategories[name] = category;
         return category;
 	}
-	
-	internal static void ClearEmptyCategories()
-	{
-		HashSet<Piece.PieceCategory> seenCategories = new();
-		foreach (GameObject prefab in ZNetScene.instance.m_prefabs)
-		{
-			if (prefab.GetComponent<Piece>() is { } piece)
-			{
-				seenCategories.Add(piece.m_category);
-			}
-		}
-		
-		List<string> categoryNames = Hud.instance.m_buildCategoryNames;
-		for (int i = categoryNames.Count - 1; i >= 0; --i)
-		{
-			if (!seenCategories.Contains((Piece.PieceCategory)i))
-			{
-				categoryNames.RemoveAt(i);
-				if (ZNetScene.instance)
-				{
-					foreach (GameObject prefab in ZNetScene.instance.m_prefabs)
-					{
-						if (prefab.GetComponent<Piece>() is { } piece && (int)piece.m_category > i)
-						{	
-							piece.m_category = (Piece.PieceCategory)((int)piece.m_category - 1);
-						}
-					}
-				}
-			}
-		}
-	}
-	
+
 	internal static void DrawCategoryTabs()
     {
         var enumNames = Enum.GetNames(typeof(Piece.PieceCategory)).Where(name => name != "All").ToList();
@@ -1493,13 +1461,6 @@ public static class PiecePrefabManager
 			}
 		}
 		
-		foreach (GameObject tab in Hud.instance.m_pieceCategoryTabs.Skip(Hud.instance.m_buildCategoryNames.Count))
-		{
-			Object.Destroy(tab);
-		}
-
-		Hud.instance.m_pieceCategoryTabs = Hud.instance.m_pieceCategoryTabs.Take(Hud.instance.m_buildCategoryNames.Count).ToArray();
-
 		if (Player.m_localPlayer && Player.m_localPlayer.m_buildPieces)
 		{
 			RepositionCategories(Player.m_localPlayer.m_buildPieces);
