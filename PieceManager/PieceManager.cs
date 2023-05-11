@@ -1242,6 +1242,8 @@ public static class PiecePrefabManager
 				nameof(UpdateAvailable_Transpiler))));
 
         harmony.Patch(AccessTools.DeclaredMethod(typeof(PieceTable), nameof(PieceTable.UpdateAvailable)),
+            prefix: new HarmonyMethod(AccessTools.DeclaredMethod(typeof(PiecePrefabManager),
+                nameof(UpdateAvailable_Prefix))),
             postfix: new HarmonyMethod(AccessTools.DeclaredMethod(typeof(PiecePrefabManager),
                 nameof(UpdateAvailable_Postfix))));
 
@@ -1565,6 +1567,18 @@ public static class PiecePrefabManager
 			__instance.PrevCategory();
 		}
 	}
+
+    private static void UpdateAvailable_Prefix(PieceTable __instance)
+    {
+        if (__instance.m_availablePieces.Count > 0)
+        {
+            int missing = MaxCategory() - __instance.m_availablePieces.Count;
+            for (int i = 0; i < missing; i++)
+            {
+                __instance.m_availablePieces.Add(new List<Piece>());
+            }
+        }
+    }
 
 	private static void UpdateAvailable_Postfix(PieceTable __instance) 
     {
