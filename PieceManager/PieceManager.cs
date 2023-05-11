@@ -307,10 +307,7 @@ public class BuildPiece
 					{
 						if (cfg.category.Value is BuildPieceCategory.Custom)
 						{
-							if (Hud.instance)
-							{
-								piecePrefab.m_category = PiecePrefabManager.GetCategory(cfg.customCategory.Value);
-							}
+							piecePrefab.m_category = PiecePrefabManager.GetCategory(cfg.customCategory.Value);
 						}
 						else
 						{
@@ -330,7 +327,11 @@ public class BuildPiece
 				cfg.category.SettingChanged += BuildTableConfigChanged;
 				cfg.customCategory.SettingChanged += BuildTableConfigChanged;
 
-				if (cfg.category.Value != BuildPieceCategory.Custom)
+				if (cfg.category.Value is BuildPieceCategory.Custom)
+				{
+					piecePrefab.m_category = PiecePrefabManager.GetCategory(cfg.customCategory.Value);
+				}
+				else
 				{
 					piecePrefab.m_category = (Piece.PieceCategory)cfg.category.Value;
 				}
@@ -1649,21 +1650,6 @@ public static class PiecePrefabManager
 	[HarmonyPriority(Priority.VeryHigh)]
 	private static void Hud_AwakeCreateTabs()
 	{
-		foreach (BuildPiece piece in BuildPiece.registeredPieces)
-		{
-			if (BuildPiece.pieceConfigs.TryGetValue(piece, out BuildPiece.PieceConfig cfg))
-			{
-				if (cfg.category.Value == BuildPieceCategory.Custom)
-				{
-					piece.Prefab.GetComponent<Piece>().m_category = GetCategory(cfg.customCategory.Value);
-				}
-			}
-			else if (piece.Category.Category == BuildPieceCategory.Custom)
-			{
-				piece.Prefab.GetComponent<Piece>().m_category = GetCategory(piece.Category.custom);
-			}
-		}
-		
 		DrawCategoryTabs();
 	}
 
