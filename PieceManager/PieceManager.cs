@@ -1576,7 +1576,7 @@ public static class PiecePrefabManager
 
 	private static void Patch_PieceTable_NextCategory(PieceTable __instance)
 	{
-		if (__instance.m_useCategories && !CategoriesInPieceTable(__instance).Contains(__instance.m_selectedCategory))
+		if (__instance.m_useCategories && !Hud.instance.m_pieceCategoryTabs[(int)__instance.m_selectedCategory].activeSelf)
 		{
 			__instance.NextCategory();
 		}
@@ -1584,7 +1584,7 @@ public static class PiecePrefabManager
 	
 	private static void Patch_PieceTable_PrevCategory(PieceTable __instance)
 	{
-		if (__instance.m_useCategories && !CategoriesInPieceTable(__instance).Contains(__instance.m_selectedCategory))
+		if (__instance.m_useCategories && !Hud.instance.m_pieceCategoryTabs[(int)__instance.m_selectedCategory].activeSelf)
 		{
 			__instance.PrevCategory();
 		}
