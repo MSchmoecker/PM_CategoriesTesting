@@ -1259,6 +1259,12 @@ public static class PiecePrefabManager
 		harmony.Patch(AccessTools.DeclaredMethod(typeof(Hud), nameof(Hud.Awake)),
 			postfix: new HarmonyMethod(AccessTools.DeclaredMethod(typeof(PiecePrefabManager),
 				nameof(Hud_AwakeCreateTabs))));
+        harmony.Patch(AccessTools.DeclaredMethod(typeof(Enum), nameof(Enum.GetValues)),
+            postfix: new HarmonyMethod(AccessTools.DeclaredMethod(typeof(PiecePrefabManager),
+                nameof(EnumGetValuesPatch))));
+        harmony.Patch(AccessTools.DeclaredMethod(typeof(Enum), nameof(Enum.GetNames)),
+            postfix: new HarmonyMethod(AccessTools.DeclaredMethod(typeof(PiecePrefabManager),
+                nameof(EnumGetNamesPatch))));
 
 
 		harmony.Patch(AccessTools.DeclaredMethod(typeof(ZNetScene), nameof(ZNetScene.Awake)),
@@ -1323,6 +1329,7 @@ public static class PiecePrefabManager
 	}
 
 	private static readonly List<GameObject> piecePrefabs = new();
+	private static readonly Dictionary<string, Piece.PieceCategory> PieceCategories = new();
 
 	public static GameObject RegisterPrefab(
 		string assetBundleFileName,
@@ -1357,6 +1364,41 @@ public static class PiecePrefabManager
 		return prefab;
 	}
 
+    private static void EnumGetValuesPatch(Type enumType, ref Array __result)
+    {
+        if (enumType != typeof(Piece.PieceCategory))
+        {
+            return;
+        }
+
+        if (PieceCategories.Count == 0)
+        {
+            return;
+        }
+
+        var categories = new Piece.PieceCategory[__result.Length + PieceCategories.Count];
+
+        __result.CopyTo(categories, 0);
+        PieceCategories.Values.CopyTo(categories, __result.Length);
+
+        __result = categories;
+    }
+
+    private static void EnumGetNamesPatch(Type enumType, ref string[] __result)
+    {
+        if (enumType != typeof(Piece.PieceCategory))
+        {
+            return;
+        }
+
+        if (PieceCategories.Count == 0)
+        {
+            return;
+        }
+
+        __result = __result.AddRangeToArray(PieceCategories.Keys.ToArray());
+    }
+
 	public static Piece.PieceCategory GetCategory(string name)
 	{
         if (Enum.TryParse(name, true, out Piece.PieceCategory category))
@@ -1364,16 +1406,27 @@ public static class PiecePrefabManager
             return category;
         }
 
-		for (int i = 0; i < Hud.instance.m_buildCategoryNames.Count; ++i)
-		{
-			if (Hud.instance.m_buildCategoryNames[i] == name)
-			{
-				return (Piece.PieceCategory)i;
-			}
-		}
+        if (PieceCategories.TryGetValue(name, out category))
+        {
+            return category;
+        }
 
-		Hud.instance.m_buildCategoryNames.Add(name);
-		return (Piece.PieceCategory)(Hud.instance.m_buildCategoryNames.Count - 1);
+        var names = Enum.GetNames(typeof(Piece.PieceCategory));
+
+        for (int i = 0; i < names.Length; ++i)
+        {
+	        if (names[i] == name)
+	        {
+                category = (Piece.PieceCategory)i;
+                PieceCategories[name] = category;
+                return category;
+            }
+        }
+
+        // create a new category
+        category = (Piece.PieceCategory)names.Length - 1;
+        PieceCategories[name] = category;
+        return category;
 	}
 	
 	internal static void ClearEmptyCategories()
@@ -1408,7 +1461,14 @@ public static class PiecePrefabManager
 	}
 	
 	internal static void DrawCategoryTabs()
-	{
+    {
+        var enumNames = Enum.GetNames(typeof(Piece.PieceCategory)).Where(name => name != "All").ToList();
+
+        for (int i = Hud.instance.m_buildCategoryNames.Count; i < enumNames.Count; ++i)
+        {
+            Hud.instance.m_buildCategoryNames.Add(enumNames[i]);
+        }
+
 		for (int i = Hud.instance.m_pieceCategoryTabs.Length; i < Hud.instance.m_buildCategoryNames.Count; ++i)
 		{
 			GameObject newTab = Object.Instantiate(Hud.instance.m_pieceCategoryTabs[0], Hud.instance.m_pieceCategoryRoot.transform);
@@ -1450,7 +1510,7 @@ public static class PiecePrefabManager
 		}
 	}
 
-	private static int MaxCategory() => Hud.instance.m_pieceCategoryTabs.Length;
+	private static int MaxCategory() => Enum.GetValues(typeof(Piece.PieceCategory)).Length - 1;
 
 	private static List<CodeInstruction> TranspileMaxCategory(IEnumerable<CodeInstruction> instructions, int maxOffset)
 	{
