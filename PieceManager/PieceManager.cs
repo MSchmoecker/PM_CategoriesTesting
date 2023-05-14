@@ -1523,7 +1523,8 @@ public static class PiecePrefabManager
 
 		HashSet<Piece.PieceCategory> visibleCategories = CategoriesInPieceTable(pieceTable);
 
-		pieceTable.m_useCategories = visibleCategories.Count > 1;
+        bool onlyMiscActive = visibleCategories.Count == 1 && visibleCategories.First() == Piece.PieceCategory.Misc;
+        pieceTable.m_useCategories = !onlyMiscActive;
 		
 		int originallyVisibleTabs = 0;
 		int visibleTabs = 0;
