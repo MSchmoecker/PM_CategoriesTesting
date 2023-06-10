@@ -1399,6 +1399,21 @@ public static class PiecePrefabManager
         __result = __result.AddRangeToArray(PieceCategories.Keys.ToArray());
     }
 
+    public static Dictionary<Piece.PieceCategory, string> GetPieceCategoriesMap()
+    {
+        var values = Enum.GetValues(typeof(Piece.PieceCategory));
+        var names = Enum.GetNames(typeof(Piece.PieceCategory));
+
+        var map = new Dictionary<Piece.PieceCategory, string>();
+
+        for (int i = 0; i < values.Length; i++)
+        {
+            map[(Piece.PieceCategory)values.GetValue(i)] = names[i];
+        }
+
+        return map;
+    }
+
 	public static Piece.PieceCategory GetCategory(string name)
 	{
         if (Enum.TryParse(name, true, out Piece.PieceCategory category))
@@ -1411,20 +1426,25 @@ public static class PiecePrefabManager
             return category;
         }
 
-        var names = Enum.GetNames(typeof(Piece.PieceCategory));
-
-        for (int i = 0; i < names.Length; ++i)
+        if (OtherPieceCategories.TryGetValue(name, out category))
         {
-	        if (names[i] == name)
-	        {
-                category = (Piece.PieceCategory)i;
-                PieceCategories[name] = category;
+            return category;
+        }
+
+        var categories = GetPieceCategoriesMap();
+
+        foreach (var categoryPair in categories)
+        {
+            if (categoryPair.Value == name)
+            {
+                category = categoryPair.Key;
+                OtherPieceCategories[name] = category;
                 return category;
             }
         }
 
         // create a new category
-        category = (Piece.PieceCategory)names.Length - 1;
+        category = (Piece.PieceCategory)categories.Count - 1;
         PieceCategories[name] = category;
         return category;
 	}
