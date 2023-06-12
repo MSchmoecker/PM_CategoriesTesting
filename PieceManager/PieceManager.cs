@@ -1330,6 +1330,7 @@ public static class PiecePrefabManager
 
 	private static readonly List<GameObject> piecePrefabs = new();
 	private static readonly Dictionary<string, Piece.PieceCategory> PieceCategories = new();
+	private static readonly Dictionary<string, Piece.PieceCategory> OtherPieceCategories = new();
 
 	public static GameObject RegisterPrefab(
 		string assetBundleFileName,
