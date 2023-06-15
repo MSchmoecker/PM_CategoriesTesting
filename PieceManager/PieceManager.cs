@@ -13,6 +13,7 @@ using BepInEx.Configuration;
 using HarmonyLib;
 using JetBrains.Annotations;
 using UnityEngine;
+using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
 namespace PieceManager;
@@ -1461,10 +1462,9 @@ public static class PiecePrefabManager
 
 		for (int i = Hud.instance.m_pieceCategoryTabs.Length; i < Hud.instance.m_buildCategoryNames.Count; ++i)
 		{
-			GameObject newTab = Object.Instantiate(Hud.instance.m_pieceCategoryTabs[0], Hud.instance.m_pieceCategoryRoot.transform);
-			newTab.SetActive(false);
-			newTab.GetOrAddComponent<UIInputHandler>().m_onLeftDown += Hud.instance.OnLeftClickCategory;
-            Hud.instance.m_pieceCategoryTabs = Hud.m_instance.m_pieceCategoryTabs.AddItem(newTab).ToArray();
+			string name = Hud.instance.m_buildCategoryNames[i];
+			GameObject newTab = CreateCategoryTab(name);
+			Hud.instance.m_pieceCategoryTabs = Hud.m_instance.m_pieceCategoryTabs.AddItem(newTab).ToArray();
 		}
 
 		bool updatedTab = false;
@@ -1491,6 +1491,30 @@ public static class PiecePrefabManager
 		{
 			Hud.instance.GetComponentInParent<Localize>().RefreshLocalization();
 		}
+	}
+
+	private static GameObject CreateCategoryTab(string name)
+	{
+		Transform categoryRoot = Hud.instance.m_pieceCategoryRoot.transform;
+
+		GameObject newTab = Object.Instantiate(Hud.instance.m_pieceCategoryTabs[0], categoryRoot);
+		newTab.SetActive(false);
+		newTab.name = name;
+		newTab.GetOrAddComponent<UIInputHandler>().m_onLeftDown += Hud.instance.OnLeftClickCategory;
+
+		foreach (var text in newTab.GetComponentsInChildren<Text>())
+		{
+			text.rectTransform.offsetMin = new Vector2(3, 1);
+			text.rectTransform.offsetMax = new Vector2(-3, -1);
+			text.resizeTextForBestFit = true;
+			text.resizeTextMinSize = 12;
+			text.resizeTextMaxSize = 20;
+			text.lineSpacing = 0.8f;
+			text.horizontalOverflow = HorizontalWrapMode.Wrap;
+			text.verticalOverflow = VerticalWrapMode.Truncate;
+		}
+
+		return newTab;
 	}
 
 	private static int MaxCategory() => Enum.GetValues(typeof(Piece.PieceCategory)).Length - 1;
