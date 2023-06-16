@@ -13,6 +13,7 @@ using BepInEx.Configuration;
 using HarmonyLib;
 using JetBrains.Annotations;
 using UnityEngine;
+using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
 namespace PieceManager;
@@ -1331,6 +1332,7 @@ public static class PiecePrefabManager
 	private static readonly List<GameObject> piecePrefabs = new();
 	private static readonly Dictionary<string, Piece.PieceCategory> PieceCategories = new();
 	private static readonly Dictionary<string, Piece.PieceCategory> OtherPieceCategories = new();
+	private static string hiddenCategoryMagic = "(HiddenCategory)";
 
 	public static GameObject RegisterPrefab(
 		string assetBundleFileName,
@@ -1461,17 +1463,16 @@ public static class PiecePrefabManager
 
 		for (int i = Hud.instance.m_pieceCategoryTabs.Length; i < Hud.instance.m_buildCategoryNames.Count; ++i)
 		{
-			GameObject newTab = Object.Instantiate(Hud.instance.m_pieceCategoryTabs[0], Hud.instance.m_pieceCategoryRoot.transform);
-			newTab.SetActive(false);
-			newTab.GetOrAddComponent<UIInputHandler>().m_onLeftDown += Hud.instance.OnLeftClickCategory;
-            Hud.instance.m_pieceCategoryTabs = Hud.m_instance.m_pieceCategoryTabs.AddItem(newTab).ToArray();
+			string name = Hud.instance.m_buildCategoryNames[i];
+			GameObject newTab = CreateCategoryTab(name);
+			Hud.instance.m_pieceCategoryTabs = Hud.m_instance.m_pieceCategoryTabs.AddItem(newTab).ToArray();
 		}
 
 		bool updatedTab = false;
 		for (int i = 0; i < Hud.instance.m_buildCategoryNames.Count; ++i)
 		{
 			string tabName = Hud.instance.m_buildCategoryNames[i];
-			if (tabName != Hud.instance.m_pieceCategoryTabs[i].name.Replace("(HiddenCategory)", ""))
+			if (tabName != Hud.instance.m_pieceCategoryTabs[i].name.Replace(hiddenCategoryMagic, ""))
 			{
 				updatedTab = true;
 				Hud.instance.m_pieceCategoryTabs[i].name = tabName;
@@ -1491,6 +1492,30 @@ public static class PiecePrefabManager
 		{
 			Hud.instance.GetComponentInParent<Localize>().RefreshLocalization();
 		}
+	}
+
+	private static GameObject CreateCategoryTab(string name)
+	{
+		Transform categoryRoot = Hud.instance.m_pieceCategoryRoot.transform;
+
+		GameObject newTab = Object.Instantiate(Hud.instance.m_pieceCategoryTabs[0], categoryRoot);
+		newTab.SetActive(false);
+		newTab.name = name;
+		newTab.GetOrAddComponent<UIInputHandler>().m_onLeftDown += Hud.instance.OnLeftClickCategory;
+
+		foreach (var text in newTab.GetComponentsInChildren<Text>())
+		{
+			text.rectTransform.offsetMin = new Vector2(3, 1);
+			text.rectTransform.offsetMax = new Vector2(-3, -1);
+			text.resizeTextForBestFit = true;
+			text.resizeTextMinSize = 12;
+			text.resizeTextMaxSize = 20;
+			text.lineSpacing = 0.8f;
+			text.horizontalOverflow = HorizontalWrapMode.Wrap;
+			text.verticalOverflow = VerticalWrapMode.Truncate;
+		}
+
+		return newTab;
 	}
 
 	private static int MaxCategory() => Enum.GetValues(typeof(Piece.PieceCategory)).Length - 1;
@@ -1552,34 +1577,82 @@ public static class PiecePrefabManager
         bool onlyMiscActive = visibleCategories.Count == 1 && visibleCategories.First() == Piece.PieceCategory.Misc;
         pieceTable.m_useCategories = !onlyMiscActive;
 
-        int maxHorizontalTabs = (int)(categoryRoot.rect.width / tabSize.x);
-        int visibleTabs = 0;
+        int maxHorizontalTabs = Mathf.Max((int)(categoryRoot.rect.width / tabSize.x), 1);
+        int visibleTabs = VisibleTabCount(visibleCategories);
+
+        float tabAnchorX = (-tabSize.x * maxHorizontalTabs) / 2f + tabSize.x / 2f;
+        float tabAnchorY = (tabSize.y + verticalSpacing) * Mathf.Floor((float)(visibleTabs - 1) / maxHorizontalTabs) + 5f;
+        Vector2 tabAnchor = new Vector2(tabAnchorX, tabAnchorY);
+
+        int tabIndex = 0;
 
         for (int i = 0; i < Hud.instance.m_pieceCategoryTabs.Length; ++i)
         {
             GameObject tab = Hud.instance.m_pieceCategoryTabs[i];
+            string categoryName = Hud.instance.m_buildCategoryNames[i];
             bool active = visibleCategories.Contains((Piece.PieceCategory)i);
 
-            tab.SetActive(active);
+            SetTabActive(tab, categoryName, active);
 
             if (active)
             {
-                RectTransform rect = tab.GetComponent<RectTransform>();
-                float x = tabSize.x * (visibleTabs % maxHorizontalTabs);
-                float y = (tabSize.y + verticalSpacing) * Mathf.Floor((float)visibleTabs / maxHorizontalTabs);
-                rect.anchoredPosition = firstTab.anchoredPosition + new Vector2(x, y);
-                visibleTabs++;
+	            RectTransform rect = tab.GetComponent<RectTransform>();
+	            float x = tabSize.x * (tabIndex % maxHorizontalTabs);
+	            float y = -(tabSize.y + verticalSpacing) * Mathf.Floor((float)tabIndex / maxHorizontalTabs);
+	            rect.anchoredPosition = tabAnchor + new Vector2(x, y);
+	            rect.anchorMin = new Vector2(0.5f, 0f);
+	            rect.anchorMax = new Vector2(0.5f, 1f);
+	            tabIndex++;
             }
         }
 
-        RectTransform background = (RectTransform)selectionWindow.Find("Bkg2").transform;
-        float height = (tabSize.y + verticalSpacing) * Mathf.Max(0, Mathf.FloorToInt((float)(visibleTabs - 1) / maxHorizontalTabs));
-        background.offsetMax = new Vector2(background.offsetMax.x, height);
+        RectTransform background = (RectTransform)selectionWindow.Find("Bkg2")?.transform;
+
+        if (background)
+        {
+	        float height = (tabSize.y + verticalSpacing) * Mathf.Max(0, Mathf.FloorToInt((float)(tabIndex - 1) / maxHorizontalTabs));
+	        background.offsetMax = new Vector2(background.offsetMax.x, height);
+        }
+        else
+        {
+	        Debug.LogWarning("RefreshCategories: Could not find background image");
+        }
 
         if ((int)Player.m_localPlayer.m_buildPieces.m_selectedCategory >= Hud.instance.m_buildCategoryNames.Count)
         {
             Player.m_localPlayer.m_buildPieces.SetCategory((int)visibleCategories.First());
         }
+    }
+
+    private static int VisibleTabCount(HashSet<Piece.PieceCategory> visibleCategories)
+    {
+	    int visibleTabs = 0;
+
+	    for (int i = 0; i < Hud.instance.m_pieceCategoryTabs.Length; ++i)
+	    {
+		    bool active = visibleCategories.Contains((Piece.PieceCategory)i);
+
+		    if (active)
+		    {
+			    visibleTabs++;
+		    }
+	    }
+
+	    return visibleTabs;
+    }
+
+    private static void SetTabActive(GameObject tab, string tabName, bool active)
+    {
+	    tab.SetActive(active);
+
+	    if (active)
+	    {
+		    tab.name = tabName.Replace(hiddenCategoryMagic, "");
+	    }
+	    else
+	    {
+		    tab.name = $"{tabName}{hiddenCategoryMagic}";
+	    }
     }
 
     private static void Patch_SetPlaceMode(Player __instance)
@@ -1592,12 +1665,14 @@ public static class PiecePrefabManager
 
 	private static void Patch_PieceTable_NextCategory(PieceTable __instance)
 	{
-        if (__instance.m_pieces.Count == 0)
+		if (__instance.m_pieces.Count == 0 || !__instance.m_useCategories)
         {
             return;
         }
 
-		if (__instance.m_useCategories && !Hud.instance.m_pieceCategoryTabs[(int)__instance.m_selectedCategory].activeSelf)
+		var selectedTab = Hud.instance.m_pieceCategoryTabs[(int)__instance.m_selectedCategory];
+
+		if (selectedTab.name.Contains(hiddenCategoryMagic))
 		{
 			__instance.NextCategory();
 		}
@@ -1605,12 +1680,14 @@ public static class PiecePrefabManager
 	
 	private static void Patch_PieceTable_PrevCategory(PieceTable __instance)
 	{
-        if (__instance.m_pieces.Count == 0)
-        {
-            return;
-        }
+		if (__instance.m_pieces.Count == 0 || !__instance.m_useCategories)
+		{
+			return;
+		}
 
-		if (__instance.m_useCategories && !Hud.instance.m_pieceCategoryTabs[(int)__instance.m_selectedCategory].activeSelf)
+		var selectedTab = Hud.instance.m_pieceCategoryTabs[(int)__instance.m_selectedCategory];
+
+		if (selectedTab.name.Contains(hiddenCategoryMagic))
 		{
 			__instance.PrevCategory();
 		}
@@ -1634,7 +1711,7 @@ public static class PiecePrefabManager
         Array.Resize(ref __instance.m_lastSelectedPiece, __instance.m_availablePieces.Count);
     }
 
-	[HarmonyPriority(Priority.VeryHigh)]
+	[HarmonyPriority(Priority.Low)]
 	private static void Hud_AwakeCreateTabs()
 	{
 		DrawCategoryTabs();
