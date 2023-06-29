@@ -316,7 +316,7 @@ public class BuildPiece
 						}
 						if (Hud.instance)
 						{
-							PiecePrefabManager.DrawCategoryTabs();
+							PiecePrefabManager.CreateCategoryTabs();
 						}
 					}
 
@@ -1449,58 +1449,42 @@ public static class PiecePrefabManager
         // create a new category
         category = (Piece.PieceCategory)categories.Count - 1;
         PieceCategories[name] = category;
+        string tokenName = GetCategoryToken(name);
+        Localization.instance.AddWord(tokenName, name);
+
         return category;
 	}
 
-	internal static void DrawCategoryTabs()
+	internal static void CreateCategoryTabs()
     {
-        var enumNames = Enum.GetNames(typeof(Piece.PieceCategory)).Where(name => name != "All").ToList();
+	    int maxCategory = MaxCategory();
 
-        for (int i = Hud.instance.m_buildCategoryNames.Count; i < enumNames.Count; ++i)
+        // Fill empty category names to prevent index issues, the correct names are set by the respective mods later
+        for (int i = Hud.instance.m_buildCategoryNames.Count; i < maxCategory; ++i)
         {
-            Hud.instance.m_buildCategoryNames.Add(enumNames[i]);
+	        Hud.instance.m_buildCategoryNames.Add("");
         }
 
-		for (int i = Hud.instance.m_pieceCategoryTabs.Length; i < Hud.instance.m_buildCategoryNames.Count; ++i)
+        // Append tabs and their names to the GUI for every custom category not already added
+        for (int i = Hud.instance.m_pieceCategoryTabs.Length; i < maxCategory; ++i)
 		{
-			string name = Hud.instance.m_buildCategoryNames[i];
-			GameObject newTab = CreateCategoryTab(name);
-			Hud.instance.m_pieceCategoryTabs = Hud.m_instance.m_pieceCategoryTabs.AddItem(newTab).ToArray();
+			GameObject tab = CreateCategoryTab();
+			Hud.instance.m_pieceCategoryTabs = Hud.instance.m_pieceCategoryTabs.AddItem(tab).ToArray();
 		}
 
-		bool updatedTab = false;
-		for (int i = 0; i < Hud.instance.m_buildCategoryNames.Count; ++i)
-		{
-			string tabName = Hud.instance.m_buildCategoryNames[i];
-			if (tabName != Hud.instance.m_pieceCategoryTabs[i].name.Replace(hiddenCategoryMagic, ""))
-			{
-				updatedTab = true;
-				Hud.instance.m_pieceCategoryTabs[i].name = tabName;
-				char[] forbiddenCharsArray = Localization.m_instance.m_endChars;
-				string tokenCategory = string.Concat(tabName.ToLower().Split(forbiddenCharsArray));
-				string tokenName = $"piecemanager_cat_{tokenCategory}";
-				Localization.m_instance.AddWord(tokenName, tabName);
-			}
-		}
-		
 		if (Player.m_localPlayer && Player.m_localPlayer.m_buildPieces)
 		{
 			RepositionCategories(Player.m_localPlayer.m_buildPieces);
 			Player.m_localPlayer.UpdateAvailablePiecesList();
 		}
-		if (updatedTab)
-		{
-			Hud.instance.GetComponentInParent<Localize>().RefreshLocalization();
-		}
-	}
+    }
 
-	private static GameObject CreateCategoryTab(string name)
+	private static GameObject CreateCategoryTab()
 	{
 		Transform categoryRoot = Hud.instance.m_pieceCategoryRoot.transform;
 
 		GameObject newTab = Object.Instantiate(Hud.instance.m_pieceCategoryTabs[0], categoryRoot);
 		newTab.SetActive(false);
-		newTab.name = name;
 		newTab.GetOrAddComponent<UIInputHandler>().m_onLeftDown += Hud.instance.OnLeftClickCategory;
 
 		foreach (var text in newTab.GetComponentsInChildren<Text>())
@@ -1573,6 +1557,7 @@ public static class PiecePrefabManager
         Vector2 tabSize = firstTab.rect.size;
 
         HashSet<Piece.PieceCategory> visibleCategories = CategoriesInPieceTable(pieceTable);
+        Dictionary<Piece.PieceCategory, string> categories = GetPieceCategoriesMap();
 
         bool onlyMiscActive = visibleCategories.Count == 1 && visibleCategories.First() == Piece.PieceCategory.Misc;
         pieceTable.m_useCategories = !onlyMiscActive;
@@ -1589,7 +1574,7 @@ public static class PiecePrefabManager
         for (int i = 0; i < Hud.instance.m_pieceCategoryTabs.Length; ++i)
         {
             GameObject tab = Hud.instance.m_pieceCategoryTabs[i];
-            string categoryName = Hud.instance.m_buildCategoryNames[i];
+            string categoryName = categories[(Piece.PieceCategory)i];
             bool active = visibleCategories.Contains((Piece.PieceCategory)i);
 
             SetTabActive(tab, categoryName, active);
@@ -1603,6 +1588,12 @@ public static class PiecePrefabManager
 	            rect.anchorMin = new Vector2(0.5f, 0f);
 	            rect.anchorMax = new Vector2(0.5f, 1f);
 	            tabIndex++;
+            }
+
+            // only update names of own tabs, as translation tokens may be different between mods
+            if (PieceCategories.ContainsKey(categoryName))
+            {
+	            Hud.instance.m_buildCategoryNames[i] = $"${GetCategoryToken(categoryName)}";
             }
         }
 
@@ -1622,6 +1613,8 @@ public static class PiecePrefabManager
         {
             Player.m_localPlayer.m_buildPieces.SetCategory((int)visibleCategories.First());
         }
+
+        Hud.instance.GetComponentInParent<Localize>().RefreshLocalization();
     }
 
     private static int VisibleTabCount(HashSet<Piece.PieceCategory> visibleCategories)
@@ -1653,6 +1646,13 @@ public static class PiecePrefabManager
 	    {
 		    tab.name = $"{tabName}{hiddenCategoryMagic}";
 	    }
+    }
+
+    private static string GetCategoryToken(string name)
+    {
+	    char[] forbiddenCharsArray = Localization.instance.m_endChars;
+	    string tokenCategory = string.Concat(name.ToLower().Split(forbiddenCharsArray));
+	    return $"piecemanager_cat_{tokenCategory}";
     }
 
     private static void Patch_SetPlaceMode(Player __instance)
@@ -1714,7 +1714,7 @@ public static class PiecePrefabManager
 	[HarmonyPriority(Priority.Low)]
 	private static void Hud_AwakeCreateTabs()
 	{
-		DrawCategoryTabs();
+		CreateCategoryTabs();
 	}
 
 	[HarmonyPriority(Priority.VeryHigh)]
